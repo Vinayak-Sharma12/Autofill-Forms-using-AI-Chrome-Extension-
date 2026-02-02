@@ -62,7 +62,7 @@
     { patterns: ['12th percentage', '12th %', 'twelfth percentage', 'twelfth %', 'class 12 percentage', '12 percentage', '12 diploma', '12% diploma', 'diploma %', 'diploma percentage'], key: 'twelfthPercentage' },
     { patterns: ['12th board', 'twelfth board', 'class 12 board', '12 board'], key: 'twelfthBoard' },
     { patterns: ['12th stream', 'twelfth stream', 'class 12 stream', '12 stream'], key: 'twelfthStream' },
-    { patterns: ['roll number', 'roll no', 'roll no'], key: 'rollNumber' },
+    { patterns: ['roll number', 'roll no'], key: 'rollNumber' },
     { patterns: ['gender', 'sex', 'male female'], key: 'gender' }
   ];
 

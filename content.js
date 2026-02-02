@@ -1,6 +1,6 @@
 /**
  * Job Application Auto-Fill — Content script.
- * Runs on the page: finds form fields, fills from profile or AI.
+ * Finds form fields, fills from profile or AI.
  */
 
 (function () {
@@ -8,17 +8,36 @@
 
   const { getProfileKeyForLabel } = JobAutoFillFieldMapping;
 
+  const MIN_MATCH_SCORE = 30;
+  const DROPDOWN_OPEN_MS = 320;
+  const GENERIC_PLACEHOLDERS = ['your answer', 'other response', 'enter your answer', 'choose', 'select'];
+  const SKIP_FOR_AI = ['other response', 'other', 'specify', 'please specify', 'your answer'];
+
+  function trimText(s) {
+    return (s == null ? '' : String(s)).trim().replace(/\s+/g, ' ');
+  }
+
+  function safeIdSelector(id) {
+    if (!id) return null;
+    try {
+      return id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    } catch (_) {
+      return null;
+    }
+  }
+
   function getFieldLabel(el) {
     if (!el) return '';
     const parts = [];
 
     // 1. Explicit label via for= or aria-labelledby
     const id = el.id;
-    if (id) {
+    const idSel = safeIdSelector(id);
+    if (idSel) {
       try {
-        const label = document.querySelector('label[for="' + id.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+        const label = document.querySelector('label[for="' + idSel + '"]');
         if (label) {
-          const t = (label.textContent || '').trim().replace(/\s+/g, ' ');
+          const t = trimText(label.textContent);
           if (t && t.length < 400) parts.push(t);
         }
       } catch (_) {}
@@ -73,10 +92,10 @@
     if (name) directParts.push(name.replace(/[._]/g, ' '));
     if (nameId && nameId !== name) directParts.push(nameId.replace(/[._]/g, ' '));
     if (ariaLabel) directParts.push(ariaLabel);
-    if (id) {
+    if (idSel) {
       try {
-        const label = document.querySelector('label[for="' + id.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
-        if (label) directParts.push((label.textContent || '').trim().replace(/\s+/g, ' '));
+        const label = document.querySelector('label[for="' + idSel + '"]');
+        if (label) directParts.push(trimText(label.textContent));
       } catch (_) {}
     }
     if (prev && !prev.querySelector('input, select, textarea')) {
@@ -86,9 +105,8 @@
     const direct = [...new Set(directParts)].filter(p => p.length >= 2 && p.length <= 350);
     if (direct.length > 0) {
       const chosen = direct.reduce((a, b) => a.length <= b.length ? a : b);
-      const genericPlaceholders = ['your answer', 'other response', 'enter your answer'];
-      if (genericPlaceholders.includes(chosen.toLowerCase().trim()) && parts.length > 0) {
-        const questionLike = [...new Set(parts)].filter(p => p && p.length > 15 && p.length <= 350);
+      if (GENERIC_PLACEHOLDERS.includes(chosen.toLowerCase().trim()) && parts.length > 0) {
+        const questionLike = [...new Set(parts)].filter(p => p && p.length > 2 && p.length <= 350 && !GENERIC_PLACEHOLDERS.includes((p || '').toLowerCase().trim()));
         if (questionLike.length > 0) return questionLike.reduce((a, b) => a.length <= b.length ? a : b);
       }
       return chosen;
@@ -104,10 +122,10 @@
 
   // Visible label for a single radio option (e.g. "Electrical Engineering")
   function getRadioOptionText(radio) {
-    const id = radio.id;
-    if (id) {
+    const idSel = safeIdSelector(radio.id);
+    if (idSel) {
       try {
-        const label = document.querySelector('label[for="' + id.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+        const label = document.querySelector('label[for="' + idSel + '"]');
         if (label) {
           const t = (label.textContent || '').trim().replace(/\s+/g, ' ');
           if (t && t.length < 200) return t;
@@ -231,6 +249,153 @@
     return out;
   }
 
+  // Text for a single [role="option"] (listbox dropdown option)
+  function getRoleOptionText(optionEl) {
+    const ariaLabel = (optionEl.getAttribute('aria-label') || '').trim();
+    if (ariaLabel && ariaLabel.length < 300) return ariaLabel;
+    const raw = (optionEl.textContent || '').trim().replace(/\s+/g, ' ');
+    if (raw.length > 0 && raw.length < 300) return raw;
+    return '';
+  }
+
+  function gatherRoleListboxes() {
+    const out = [];
+    const comboboxes = document.querySelectorAll('[role="combobox"], [aria-haspopup="listbox"]');
+    for (const combo of comboboxes) {
+      if (combo.closest('[role="listbox"]') || combo.closest('[role="menu"]')) continue;
+      const listboxId = combo.getAttribute('aria-controls');
+      const byId = listboxId ? document.getElementById(listboxId) : null;
+      const listbox = byId && (byId.getAttribute('role') === 'listbox' || byId.querySelectorAll('[role="option"], [role="menuitem"]').length) ? byId : null;
+      let optionEls = listbox ? Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"]')) : [];
+      if (optionEls.length === 0 && byId) {
+        optionEls = Array.from(byId.querySelectorAll('[role="menuitem"]'));
+      }
+      const options = optionEls.map(function (o) {
+        const text = getRoleOptionText(o);
+        return { value: text, text: text.substring(0, 200) };
+      }).filter(function (o) { return (o.text || o.value); });
+      const label = (combo.getAttribute('aria-label') || '').trim()
+        || getFieldLabel(combo);
+      out.push({
+        el: combo,
+        label,
+        placeholder: (combo.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 100),
+        tag: 'div',
+        type: 'listbox',
+        roleListbox: true,
+        listboxEl: listbox || null,
+        optionEls,
+        options
+      });
+    }
+    return out;
+  }
+
+  // For dropdown triggers that only show "Choose", get the real question title from parent (e.g. "Branch *").
+  function getDropdownQuestionLabel(trigger) {
+    const skipText = ['choose', 'select'];
+    function ok(t) {
+      const s = (t || '').trim().replace(/\s+/g, ' ');
+      return s.length > 1 && s.length < 200 && !skipText.includes(s.toLowerCase());
+    }
+    for (let p = trigger.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (p.closest('[class*="exportSelectPopup"], [class*="SelectPopup"]')) continue;
+      const heading = p.querySelector('[class*="Title"], [class*="title"], [class*="Header"], [role="heading"]');
+      if (heading && !trigger.contains(heading) && heading !== trigger) {
+        const t = (heading.textContent || '').trim().replace(/\s+/g, ' ');
+        if (ok(t)) return t;
+      }
+      for (const child of p.children) {
+        if (child.contains(trigger) || child === trigger) continue;
+        const t = (child.textContent || '').trim().replace(/\s+/g, ' ');
+        if (ok(t)) return t;
+      }
+      const raw = (p.textContent || '').trim().replace(/\s+/g, ' ');
+      const withoutPlaceholder = raw.replace(/\bChoose\b/gi, '').replace(/\bSelect\b/gi, '').trim();
+      const first = withoutPlaceholder.split(/\s{2,}|\n/)[0] || withoutPlaceholder.substring(0, 80);
+      if (ok(first)) return first;
+    }
+    const parent = trigger.closest('[role="group"], [class*="Question"], [class*="question"], [class*="Formviewer"], [class*="freebird"]');
+    if (parent && !parent.closest('[class*="exportSelectPopup"]')) {
+      const prev = trigger.previousElementSibling;
+      if (prev) {
+        const t = (prev.textContent || '').trim().replace(/\s+/g, ' ');
+        if (ok(t)) return t;
+      }
+      const raw = (parent.textContent || '').trim().replace(/\s+/g, ' ');
+      const first = raw.replace(/\bChoose\b/gi, '').trim().split(/\s{2,}|\n/)[0] || raw.substring(0, 80);
+      if (ok(first)) return first;
+    }
+    return '';
+  }
+
+  // Google Forms: div-based dropdown (class names, no ARIA). Trigger shows "Choose"; popup has options.
+  function gatherGoogleFormsDropdowns() {
+    const out = [];
+    const seen = new Set();
+
+    function addTrigger(trigger) {
+      if (!trigger || seen.has(trigger)) return;
+      if (trigger.closest('[class*="exportSelectPopup"], [class*="SelectPopup"]')) return;
+      let label = getFieldLabel(trigger);
+      if (!label || label.trim() === 'Choose' || label.trim() === 'Select') {
+        label = getDropdownQuestionLabel(trigger) || label;
+      }
+      const placeholder = (trigger.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 100);
+      if (!label && !placeholder) return;
+      seen.add(trigger);
+      out.push({
+        el: trigger,
+        label: label || placeholder,
+        placeholder,
+        tag: 'div',
+        type: 'listbox',
+        roleListbox: true,
+        listboxEl: null,
+        optionEls: [],
+        options: [],
+        googleFormsDropdown: true
+      });
+    }
+
+    // 1) Class-based: known Google Forms patterns (including minified/hashed)
+    const classSelectors = [
+      '[class*="PaperselectOptionList"]',
+      '[class*="MenuPaperselect"]',
+      '[class*="quantumWizMenuPaperselect"]',
+      '[class*="MaterialWizMenuPaperselect"]',
+      '[class*="freebirdThemedSelect"]',
+      '[class*="Dropdown"]:not([class*="SelectPopup"])',
+      '[data-value][class*="Select"]'
+    ];
+    for (const sel of classSelectors) {
+      try {
+        const list = document.querySelectorAll(sel);
+        for (const el of list) {
+          if (el.closest('[class*="exportSelectPopup"], [class*="SelectPopup"]')) continue;
+          addTrigger(el);
+        }
+      } catch (_) {}
+    }
+
+    // 2) Fallback: any element that shows "Choose" (or "Select") and is a dropdown trigger (not inside popup)
+    const placeholders = ['Choose', 'Select'];
+    const all = document.querySelectorAll('div, span, [role="button"]');
+    for (const el of all) {
+      const text = (el.textContent || '').trim();
+      if (!placeholders.includes(text)) continue;
+      if (el.closest('[class*="exportSelectPopup"], [class*="SelectPopup"]')) continue;
+      const clickable = el.closest('[class*="Select"], [class*="Dropdown"], [class*="MenuPaper"], [class*="Paperselect"]') || el.parentElement;
+      const trigger = clickable && clickable !== el ? clickable : el;
+      const rect = trigger.getBoundingClientRect && trigger.getBoundingClientRect();
+      if (trigger && rect && rect.width > 20 && rect.height > 10) {
+        addTrigger(trigger);
+      }
+    }
+
+    return out;
+  }
+
   function gatherFields() {
     const fields = [];
     const inputs = document.querySelectorAll(
@@ -255,6 +420,10 @@
     }
     fields.push.apply(fields, gatherRadioGroups());
     fields.push.apply(fields, gatherRoleRadioGroups());
+    fields.push.apply(fields, gatherRoleListboxes());
+    const seenEls = new Set(fields.map(function (f) { return f.el; }));
+    const gformDropdowns = gatherGoogleFormsDropdowns().filter(function (f) { return !seenEls.has(f.el); });
+    fields.push.apply(fields, gformDropdowns);
     return fields;
   }
 
@@ -338,6 +507,64 @@
     const tag = (el.tagName || '').toLowerCase();
     const type = (field.type || el.type || el.getAttribute('type') || '').toLowerCase();
 
+    // Google Forms / custom dropdown: [role="combobox"] + [role="listbox"] or Google class-based dropdown
+    if (field.roleListbox && field.el) {
+      const combo = field.el;
+      combo.focus();
+      combo.click();
+      combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, view: window }));
+      combo.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: window }));
+      combo.dispatchEvent(new MouseEvent('click', { bubbles: true, view: window }));
+      const listboxPromise = new Promise(function (resolve) {
+        setTimeout(function () {
+          const listboxId = combo.getAttribute('aria-controls');
+          let listbox = listboxId ? document.getElementById(listboxId) : null;
+          if (!listbox || listbox.querySelectorAll('[role="option"], [role="menuitem"]').length === 0) {
+            const all = document.querySelectorAll('[role="listbox"], [role="menu"]');
+            for (const lb of all) {
+              if (lb.querySelectorAll('[role="option"], [role="menuitem"]').length && (lb.offsetParent != null || lb.getBoundingClientRect().height > 0)) {
+                listbox = lb;
+                break;
+              }
+            }
+          }
+          let optionEls = listbox ? Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"]')) : (field.optionEls || []);
+          if (optionEls.length === 0 && field.optionEls && field.optionEls.length) optionEls = field.optionEls;
+          if (optionEls.length === 0 && (field.googleFormsDropdown || !listbox)) {
+            const popup = document.querySelector('[class*="exportSelectPopup"], [class*="SelectPopup"]');
+            if (popup) {
+              optionEls = Array.from(popup.querySelectorAll('[class*="PaperselectOption"], [class*="exportOption"], [class*="SelectOption"], [class*="quantumWizMenuPaperselectOption"], [class*="Option"]')).filter(function (o) { return (o.textContent || '').trim().length > 0; });
+              if (optionEls.length === 0) {
+                optionEls = Array.from(popup.querySelectorAll('[data-value]')).filter(function (o) { return (o.textContent || '').trim().length > 0; });
+              }
+              if (optionEls.length === 0 && popup.children.length > 0) {
+                optionEls = Array.from(popup.children).filter(function (o) { return (o.textContent || '').trim().length > 0 && (o.textContent || '').trim() !== 'Choose'; });
+              }
+            }
+          }
+          let bestOptEl = null;
+          let bestScore = 0;
+          for (const optEl of optionEls) {
+            const optText = getRoleOptionText(optEl);
+            const score = scoreMatch(v, optText, optText);
+            if (score > bestScore) {
+              bestScore = score;
+              bestOptEl = optEl;
+            }
+          }
+          if (bestOptEl && bestScore >= MIN_MATCH_SCORE) {
+            bestOptEl.focus();
+            bestOptEl.click();
+            bestOptEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, view: window }));
+            bestOptEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: window }));
+            bestOptEl.dispatchEvent(new MouseEvent('click', { bubbles: true, view: window }));
+          }
+          resolve();
+        }, DROPDOWN_OPEN_MS);
+      });
+      return listboxPromise;
+    }
+
     // Role-based [role="radio"] (e.g. Google Forms): scoreMatch → aria-checked, focus, click, mouse events
     if (field.roleRadio && field.radios && field.radios.length) {
       const options = field.options || [];
@@ -354,8 +581,7 @@
           bestMatch = r;
         }
       });
-      const minScore = 30;
-      if (bestMatch && bestScore >= minScore) {
+      if (bestMatch && bestScore >= MIN_MATCH_SCORE) {
         const radiogroup = bestMatch.closest('[role="radiogroup"]');
         if (radiogroup) {
           radiogroup.querySelectorAll('[role="radio"]').forEach(function (r) {
@@ -396,12 +622,12 @@
         }
       });
 
-      // If we found a good match (score >= 40), select it
       if (bestMatch && bestScore >= 40) {
         bestMatch.checked = true;
         bestMatch.dispatchEvent(new Event('change', { bubbles: true }));
         bestMatch.dispatchEvent(new Event('input', { bubbles: true }));
-        var labelFor = bestMatch.id && document.querySelector('label[for="' + bestMatch.id.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+        const labelSel = safeIdSelector(bestMatch.id);
+        const labelFor = labelSel ? document.querySelector('label[for="' + labelSel + '"]') : null;
         if (labelFor) {
           labelFor.click();
         } else {
@@ -413,14 +639,28 @@
 
     if (tag === 'select') {
       const opts = Array.from(el.options);
-      const opt = opts.find(o => (o.value || o.text).trim().toLowerCase() === v.toLowerCase())
-        || opts.find(o => (o.text || o.value).trim().toLowerCase().includes(v.toLowerCase()));
-      if (opt) {
-        el.value = opt.value;
-      } else if (opts.length) {
-        el.selectedIndex = 0;
+      if (opts.length === 0) return;
+      let bestOpt = null;
+      let bestScore = 0;
+      for (const optEl of opts) {
+        const optVal = (optEl.value || '').trim();
+        const optText = (optEl.text || '').trim();
+        if (!optVal && !optText) continue; // skip placeholder/empty
+        const score = scoreMatch(v, optText, optVal);
+        if (score > bestScore) {
+          bestScore = score;
+          bestOpt = optEl;
+        }
+      }
+      if (bestOpt && bestScore >= MIN_MATCH_SCORE) {
+        el.value = bestOpt.value;
+      } else {
+        const fallback = opts.find(o => (o.value || o.text).trim().toLowerCase() === v.toLowerCase())
+          || opts.find(o => (o.text || o.value).trim().toLowerCase().includes(v.toLowerCase()));
+        if (fallback) el.value = fallback.value;
       }
       el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
       return;
     }
     // type="number" only accepts valid numbers
@@ -452,6 +692,24 @@
     return profile[key].trim();
   }
 
+  async function tryFillWithAI(field, question, apiKey, apiProvider, resume) {
+    try {
+      const response = await new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: 'GENERATE_ANSWER', question, resume, apiKey, apiProvider }, resolve);
+      });
+      if (response && response.text) {
+        const setPromise = setInputValue(field, response.text);
+        if (setPromise && typeof setPromise.then === 'function') await setPromise;
+        addFillLabel(field.el, 'AI');
+        return { filled: 1 };
+      }
+      if (response && response.error) return { error: ((field.label || field.placeholder || '').trim() || 'Field') + ': ' + response.error };
+    } catch (e) {
+      return { error: ((field.label || field.placeholder || '').trim() || 'Field') + ': ' + (e.message || String(e)) };
+    }
+    return {};
+  }
+
   async function fillForm() {
     const data = await new Promise(resolve => {
       chrome.storage.local.get(['profile', 'resume', 'apiProvider', 'apiKeyOpenai', 'apiKeyGroq', 'apiKey'], resolve);
@@ -465,9 +723,9 @@
 
     const fields = gatherFields();
     const labels = fields.map(f => (f.label || f.placeholder || '').trim() || '(no label)');
-    let classifications = []; // "PREFILLED" | "AI_ANSWER" per index
+    let classifications = [];
 
-    // ——— Step 1: LLM classifies each question as PREFILLED (from profile) or AI_ANSWER (generate from resume) ———
+    // Step 1: Classify each field as PREFILLED or AI_ANSWER
     if (apiKey && labels.length > 0) {
       try {
         const resp = await new Promise(resolve => {
@@ -485,8 +743,7 @@
       });
     }
 
-    // ——— Step 2: Route each field to PREFILLED path or AI path ———
-    const skipForAI = ['other response', 'other', 'specify', 'please specify', 'your answer'];
+    // Step 2: Route each field to PREFILLED or AI path
     let filled = 0;
     const errors = [];
 
@@ -496,79 +753,58 @@
       const effectiveLabel = (label || placeholder || '').trim();
       const effLower = effectiveLabel.toLowerCase();
       const isTextLike = tag === 'textarea' || (tag === 'input' && (type === 'text' || type === 'email' || type === 'url' || type === ''));
-      const isMultipleChoice = (tag === 'select') || (type === 'radio' && field.radios);
+      const isMultipleChoice = (tag === 'select') || (type === 'listbox' && field.roleListbox) || (type === 'radio' && field.radios);
 
       if (classifications[i] === 'PREFILLED') {
         const profileKey = getProfileKeyForLabel(effectiveLabel);
         const profileValue = profileKey ? getProfileValue(profile, profileKey) : null;
         if (profileValue) {
-          setInputValue(field, profileValue);
+          const setPromise = setInputValue(field, profileValue);
+          if (setPromise && typeof setPromise.then === 'function') await setPromise;
           addFillLabel(el, 'Prefilled');
           filled++;
         }
         continue;
       }
 
-      // AI path: text/textarea or multiple choice (pick one from options)
       if (classifications[i] === 'AI_ANSWER' && resume && apiKey) {
-        if (effectiveLabel.length < 15 && skipForAI.some(s => effLower === s || effLower.startsWith(s + ' '))) continue;
+        if (effectiveLabel.length < 15 && SKIP_FOR_AI.some(s => effLower === s || effLower.startsWith(s + ' '))) continue;
         let question = effectiveLabel || 'Please provide a brief professional response for this form field.';
         if (isMultipleChoice && options && options.length) {
-          const optList = options.map(function (o) { return o.text || o.value; }).filter(Boolean).join(', ');
+          const optList = options.map(o => o.text || o.value).filter(Boolean).join(', ');
           question = question + ' Choose exactly one from: ' + optList + '. Reply with only that option.';
         } else if (!isTextLike) continue;
-        try {
-          const response = await new Promise(resolve => {
-            chrome.runtime.sendMessage({ type: 'GENERATE_ANSWER', question, resume, apiKey, apiProvider }, resolve);
-          });
-          if (response && response.text) {
-            setInputValue(field, response.text);
-            addFillLabel(el, 'AI');
-            filled++;
-          } else if (response && response.error) {
-            errors.push((effectiveLabel || 'Field') + ': ' + response.error);
-          }
-        } catch (e) {
-          errors.push((effectiveLabel || 'Field') + ': ' + (e.message || String(e)));
-        }
+        const result = await tryFillWithAI(field, question, apiKey, apiProvider, resume);
+        if (result.filled) filled++;
+        if (result.error) errors.push(result.error);
       }
     }
 
-    // ——— Step 3: Any PREFILLED field still empty → answer with AI ———
+    // Step 3: Fill still-empty fields with AI
     for (let i = 0; i < fields.length; i++) {
       const field = fields[i];
       const { el, label, placeholder, tag, type, radios, options } = field;
-      const currentVal = (radios && radios.length)
+      let currentVal = (radios && radios.length)
         ? (field.roleRadio
-            ? (radios.some(function (r) { return r.getAttribute('aria-checked') === 'true'; }) ? 'selected' : '')
-            : ((radios.find(function (r) { return r.checked; }) || {}).value || '').trim())
-        : (el.value || '').trim();
+            ? (radios.some(r => r.getAttribute('aria-checked') === 'true') ? 'selected' : '')
+            : ((radios.find(r => r.checked) || {}).value || '').trim())
+        : (field.roleListbox ? trimText(el.textContent) : (el.value || '').trim());
+      if (field.roleListbox && (currentVal === 'Choose' || currentVal === 'Select' || (placeholder && trimText(currentVal) === trimText(placeholder)))) currentVal = '';
       if (currentVal) continue;
-      const effectiveLabel = (label || placeholder || '').trim();
+      const effectiveLabel = trimText(label || placeholder);
       const effLower = effectiveLabel.toLowerCase();
       const isTextLike = tag === 'textarea' || (tag === 'input' && (type === 'text' || type === 'email' || type === 'url' || type === ''));
-      const isMultipleChoice = (tag === 'select') || (type === 'radio' && radios);
+      const isMultipleChoice = (tag === 'select') || (type === 'listbox' && field.roleListbox) || (type === 'radio' && radios);
       if ((!isTextLike && !isMultipleChoice) || !resume || !apiKey) continue;
-      if (effectiveLabel.length < 15 && skipForAI.some(s => effLower === s || effLower.startsWith(s + ' '))) continue;
+      if (effectiveLabel.length < 15 && SKIP_FOR_AI.some(s => effLower === s || effLower.startsWith(s + ' '))) continue;
       let question = effectiveLabel || 'Please provide a brief professional response for this form field.';
       if (isMultipleChoice && options && options.length) {
-        const optList = options.map(function (o) { return o.text || o.value; }).filter(Boolean).join(', ');
+        const optList = options.map(o => o.text || o.value).filter(Boolean).join(', ');
         question = question + ' Choose exactly one from: ' + optList + '. Reply with only that option.';
       }
-      try {
-        const response = await new Promise(resolve => {
-          chrome.runtime.sendMessage({ type: 'GENERATE_ANSWER', question, resume, apiKey, apiProvider }, resolve);
-        });
-        if (response && response.text) {
-          setInputValue(field, response.text);
-          addFillLabel(el, 'AI');
-          filled++;
-        } else if (response && response.error) {
-          errors.push((effectiveLabel || 'Field') + ': ' + response.error);
-        }
-      } catch (e) {
-        errors.push((effectiveLabel || 'Field') + ': ' + (e.message || String(e)));
-      }
+      const result = await tryFillWithAI(field, question, apiKey, apiProvider, resume);
+      if (result.filled) filled++;
+      if (result.error) errors.push(result.error);
     }
 
     return { filled, total: fields.length, errors };

@@ -29,18 +29,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => sendResponse({ error: err.message || String(err) }));
     return true;
   }
-  // Relay content script debug logs so they appear in Service Worker console
-  if (message.type === 'CONTENT_DEBUG') {
-    const prefix = message.inIframe ? '[Content/iframe]' : '[Content/top]';
-    if (message.level === 'warn') {
-      console.warn(prefix, ...(message.args || []));
-    } else if (message.level === 'error') {
-      console.error(prefix, ...(message.args || []));
-    } else {
-      console.log(prefix, ...(message.args || []));
-    }
-    return false;
-  }
 });
 
 async function generateAnswer(question, resume, apiKey, apiProvider) {
@@ -56,8 +44,6 @@ async function generateAnswer(question, resume, apiKey, apiProvider) {
   const systemPrompt = `You are helping fill a job application form. Output ONLY the direct answer: a short value, number, or 1–3 sentence response based on the candidate's resume. Use first person ("I"). Do not make up facts. Never output meta-commentary like "It seems like you want...", "I will help you...", or "Here is...". Output only the requested data (e.g. a percentage, a name, or a brief answer).`;
 
   const userContent = `Resume:\n${resume}\n\nForm question to answer:\n${question}`;
-
-  console.log('[Job Auto-Fill] Question (full):', question);
 
   const body = {
     model,
@@ -102,7 +88,7 @@ async function generateAnswer(question, resume, apiKey, apiProvider) {
 
 const CLASSIFY_SYSTEM = `You classify job application form questions into two categories.
 
-PREFILLED: Can be answered from  prefiled knowledge given.The following are the knowledge exaclty available: Name/FullName/First Name/Last Name,email,Phone Number,Gender,Roll Number,College/University Name,Branch/Stream in College,Years of Experience,CGPA,Age,Company Name,Current Role/Designation in the Company,Current Salary (CTC),LinkedIn Profile(url),1Oth:Board,Percentage,School,12th:Board,Percentage,School
+PREFILLED: Can be answered from prefilled knowledge. Available: Name/FullName/First Name/Last Name, email, Phone Number, Gender, Roll Number, College/University Name, Branch/Stream, Years of Experience, CGPA, Age, Company Name, Current Role/Designation, Current Salary (CTC), LinkedIn Profile, 10th: Board/Percentage/School, 12th: Board/Percentage/School.
 
 AI_ANSWER: Needs generated text from the resume (paragraph or multiple sentences). Examples: "Tell about experience in your current company and project and tech stack", "Describe a challenge", "Why do you want to join", "Cover letter", "Tell us about yourself", "Project you worked on", "Explain your role", motivations, accomplishments.
 
@@ -165,7 +151,6 @@ async function classifyFields(labels, apiKey, apiProvider) {
       classifications = parsed.map(c => String(c).toUpperCase() === 'AI_ANSWER' ? 'AI_ANSWER' : 'PREFILLED');
     }
   } catch (_) {}
-  // Fallback if parse failed or wrong length: per-line "0: PREFILLED" or default PREFILLED
   if (classifications.length !== labels.length) {
     const lines = raw.split(/\n/).filter(Boolean);
     classifications = labels.map((_, i) => {
