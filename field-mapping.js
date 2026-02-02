@@ -17,6 +17,7 @@
     if (typeof s !== 'string') return '';
     return s
       .toLowerCase()
+      .replace(/[\/]/g, ' ')  // Convert "/" to space (e.g., "Branch/Specialisation" -> "Branch Specialisation")
       .replace(/[\s_\-\.]+/g, ' ')
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, ' ')
@@ -29,7 +30,7 @@
     { patterns: ['last name', 'lastname', 'family name', 'surname', 'lname', 'applicant last'], key: 'lastName' },
     { patterns: ['name of institute', 'name of university', 'institute', 'university', 'college', 'institute name', 'university name', 'college name', 'name of your institute', 'name of your university', 'institute university final degree', 'name of institute university final degree', 'final degree institute', 'final degree university'], key: 'institute' },
     { patterns: ['degree', 'qualification', 'course', 'degree name', 'graduation', 'highest qualification', 'highest educational qualification', 'educational qualification'], key: 'degree' },
-    { patterns: ['branch', 'branch name', 'specialization', 'department', 'stream', 'branch specialization'], key: 'branch' },
+    { patterns: ['branch', 'branch name', 'specialization', 'specialisation', 'department', 'stream', 'branch specialization', 'branch specialisation', 'branch/specialization', 'branch/specialisation'], key: 'branch' },
     { patterns: ['full name', 'name', 'applicant name', 'your name', 'candidate name'], key: 'fullName' },
     { patterns: ['email', 'e mail', 'email address', 'e-mail', 'work email', 'primary email', 'applicant email'], key: 'email' },
     { patterns: ['phone', 'telephone', 'mobile', 'cell', 'phone number', 'work phone', 'primary phone', 'contact number'], key: 'phone' },
@@ -72,7 +73,16 @@
       const { patterns, key, excludeIf } = entry;
       if (typeof excludeIf === 'function' && excludeIf(n)) continue;
       for (const p of patterns) {
-        if (n === p || n.includes(p) || p.includes(n)) return key;
+        // Exact match
+        if (n === p) return key;
+        // One contains the other
+        if (n.includes(p) || p.includes(n)) return key;
+        // Check if all words in pattern are present in normalized label (handles word order variations)
+        const patternWords = p.split(/\s+/).filter(w => w.length > 2);
+        if (patternWords.length > 0) {
+          const allWordsPresent = patternWords.every(word => n.includes(word));
+          if (allWordsPresent) return key;
+        }
       }
     }
     return null;

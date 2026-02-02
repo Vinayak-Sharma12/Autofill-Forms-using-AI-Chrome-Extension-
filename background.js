@@ -29,6 +29,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => sendResponse({ error: err.message || String(err) }));
     return true;
   }
+  // Relay content script debug logs so they appear in Service Worker console
+  if (message.type === 'CONTENT_DEBUG') {
+    const prefix = message.inIframe ? '[Content/iframe]' : '[Content/top]';
+    if (message.level === 'warn') {
+      console.warn(prefix, ...(message.args || []));
+    } else if (message.level === 'error') {
+      console.error(prefix, ...(message.args || []));
+    } else {
+      console.log(prefix, ...(message.args || []));
+    }
+    return false;
+  }
 });
 
 async function generateAnswer(question, resume, apiKey, apiProvider) {
