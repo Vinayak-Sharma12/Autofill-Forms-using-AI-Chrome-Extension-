@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Auto-Fill — Options</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 24px;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 8px; }
+    p.sub { color: #666; font-size: 0.9rem; margin: 0 0 20px; }
+    section {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    section h2 { font-size: 1rem; margin: 0 0 12px; color: #333; }
+    label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 4px; color: #444; }
+    input[type="text"],
+    input[type="email"],
+    input[type="url"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      background: #fff;
+    }
+    textarea {
+      width: 100%;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    #status { margin-top: 12px; font-size: 0.9rem; color: #059669; }
+    #status.error { color: #dc2626; }
+    .api-block { margin-bottom: 20px; }
+    .api-block:last-of-type { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <h1>Job Application Auto-Fill</h1>
+  <p class="sub">Set your profile, resume, and an API key. Use OpenAI or Groq (free tier) for AI answers.</p>
+
+  <section>
+    <h2>Profile (for instant fill)</h2>
+    <div class="row">
+      <div>
+        <label for="firstName">First name</label>
+        <input type="text" id="firstName" placeholder="John">
+      </div>
+      <div>
+        <label for="lastName">Last name</label>
+        <input type="text" id="lastName" placeholder="Doe">
+      </div>
+    </div>
+    <label for="email">Email</label>
+    <input type="email" id="email" placeholder="john@example.com">
+    <label for="phone">Phone</label>
+    <input type="text" id="phone" placeholder="+1 234 567 8900">
+    <label for="yearsExperience">Years of experience</label>
+    <input type="text" id="yearsExperience" placeholder="5">
+    <label for="linkedin">LinkedIn URL</label>
+    <input type="url" id="linkedin" placeholder="https://linkedin.com/in/yourprofile">
+    <label for="currentCompany">Current company</label>
+    <input type="text" id="currentCompany" placeholder="Acme Inc">
+    <label for="currentRole">Current role / designation</label>
+    <input type="text" id="currentRole" placeholder="Software Engineer">
+    <label for="currentSalary">Current Salary (CTC)</label>
+    <input type="text" id="currentSalary" placeholder="e.g. 12 LPA or 500000">
+    <label for="currentCGPA">Current CGPA</label>
+    <input type="text" id="currentCGPA" placeholder="8.5">
+    <label for="tenthPercentage">10th % (percentage)</label>
+    <input type="text" id="tenthPercentage" placeholder="85">
+    <label for="tenthBoard">10th Board</label>
+    <input type="text" id="tenthBoard" placeholder="CBSE">
+    <label for="tenthStream">10th Stream</label>
+    <input type="text" id="tenthStream" placeholder="General">
+    <label for="twelfthPercentage">12th % (percentage)</label>
+    <input type="text" id="twelfthPercentage" placeholder="88">
+    <label for="twelfthBoard">12th Board</label>
+    <input type="text" id="twelfthBoard" placeholder="CBSE">
+    <label for="twelfthStream">12th Stream</label>
+    <input type="text" id="twelfthStream" placeholder="Science">
+    <label for="rollNumber">Roll Number</label>
+    <input type="text" id="rollNumber" placeholder="">
+    <div class="row">
+      <div>
+        <label for="age">Age</label>
+        <input type="text" id="age" placeholder="25">
+      </div>
+      <div>
+        <label for="gender">Gender</label>
+        <input type="text" id="gender" placeholder="Male / Female / Other">
+      </div>
+    </div>
+    <label for="institute">Name of Institute / University</label>
+    <input type="text" id="institute" placeholder="ABC University">
+    <label for="degree">Degree</label>
+    <input type="text" id="degree" placeholder="B.Tech / B.E. / MCA">
+    <label for="branch">Branch name</label>
+    <input type="text" id="branch" placeholder="Computer Science">
+  </section>
+
+  <section>
+    <h2>Resume (for AI answers)</h2>
+    <label for="resume">Paste your resume text here. Used to answer questions like "Tell me about a project" or "Describe your experience".</label>
+    <textarea id="resume" placeholder="Paste full resume text..."></textarea>
+  </section>
+
+  <section>
+    <h2>AI API (OpenAI or Groq)</h2>
+    <label for="apiProvider">Use provider</label>
+    <select id="apiProvider">
+      <option value="openai">OpenAI (GPT)</option>
+      <option value="groq">Groq (Free)</option>
+    </select>
+    <div class="api-block">
+      <label for="apiKeyOpenai">OpenAI API key</label>
+      <input type="password" id="apiKeyOpenai" placeholder="sk-..." autocomplete="off">
+      <p style="margin: 4px 0 0; font-size: 0.8rem; color: #666;">Get key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a></p>
+    </div>
+    <div class="api-block">
+      <label for="apiKeyGroq">Groq API key (free tier)</label>
+      <input type="password" id="apiKeyGroq" placeholder="gsk_..." autocomplete="off">
+      <p style="margin: 4px 0 0; font-size: 0.8rem; color: #666;">Get free key at <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></p>
+    </div>
+  </section>
+
+  <button type="button" id="save" style="margin-top: 8px;">Save</button>
+  <div id="status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Auto-Fill</title>
+  <style>
+    body {
+      width: 280px;
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      color: #1a1a1a;
+    }
+    h2 { font-size: 1rem; margin: 0 0 12px; font-weight: 600; }
+    p { margin: 0 0 12px; color: #555; }
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    #message { margin-top: 10px; font-size: 13px; }
+    #message.success { color: #059669; }
+    #message.error { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h2>Job Application Auto-Fill</h2>
+  <p>Fill form fields on this page using your saved profile and AI-generated answers.</p>
+  <button type="button" id="fill">Fill form</button>
+  <p><a href="#" id="optionsLink">Options</a></p>
+  <div id="message"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
