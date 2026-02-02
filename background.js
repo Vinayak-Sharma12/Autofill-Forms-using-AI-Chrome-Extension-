@@ -23,6 +23,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => sendResponse({ error: err.message || String(err) }));
     return true;
   }
+  if (message.type === 'IMPROVE_ANSWER') {
+    improveAnswer(
+      message.question,
+      message.currentAnswer,
+      message.userInstructions,
+      message.resume,
+      message.apiKey,
+      message.apiProvider
+    )
+      .then(sendResponse)
+      .catch((err) => sendResponse({ error: err.message || String(err) }));
+    return true;
+  }
   if (message.type === 'CLASSIFY_FIELDS') {
     classifyFields(message.labels, message.apiKey, message.apiProvider)
       .then(sendResponse)
@@ -44,6 +57,66 @@ async function generateAnswer(question, resume, apiKey, apiProvider) {
   const systemPrompt = `You are helping fill a job application form. Output ONLY the direct answer: a short value, number, or 1–3 sentence response based on the candidate's resume. Use first person ("I"). Do not make up facts. Never output meta-commentary like "It seems like you want...", "I will help you...", or "Here is...". Output only the requested data (e.g. a percentage, a name, or a brief answer).`;
 
   const userContent = `Resume:\n${resume}\n\nForm question to answer:\n${question}`;
+
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent }
+    ],
+    temperature: 0.3,
+    max_tokens: 500
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey.trim()}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    let msg = `API error ${res.status}`;
+    try {
+      const j = JSON.parse(errText);
+      if (j.error && j.error.message) msg = j.error.message;
+    } catch (_) {}
+    return { error: msg };
+  }
+
+  const data = await res.json();
+  const text = data.choices && data.choices[0] && data.choices[0].message
+    ? data.choices[0].message.content
+    : '';
+
+  if (!text || !text.trim()) {
+    return { error: 'Empty response from API.' };
+  }
+
+  return { text: text.trim() };
+}
+
+async function improveAnswer(question, currentAnswer, userInstructions, resume, apiKey, apiProvider) {
+  if (!apiKey || !apiKey.trim()) {
+    return { error: 'API key not set. Add it in extension Options (OpenAI or Groq).' };
+  }
+  if (!resume || !resume.trim()) {
+    return { error: 'Resume not set. Add it in extension Options.' };
+  }
+
+  const { url, model } = getApiConfig(apiProvider);
+
+  const systemPrompt = `You are helping improve a job application form answer. You will be given: (1) the form question, (2) the current answer in the field, (3) optional instructions for how to improve it. Rewrite the answer using the candidate's resume. Apply the user's improvement instructions if provided. Use first person ("I"). Do not make up facts. Output ONLY the improved answer: no meta-commentary, no "Here is...", no explanation.`;
+
+  let userContent = `Resume:\n${resume}\n\nForm question:\n${question}\n\nCurrent answer in the field:\n${currentAnswer || '(empty)'}`;
+  if (userInstructions && userInstructions.trim()) {
+    userContent += `\n\nInstructions for improvement:\n${userInstructions.trim()}`;
+  } else {
+    userContent += `\n\nImprove this answer to better match the resume and the question (clearer, more relevant, or more professional).`;
+  }
 
   const body = {
     model,

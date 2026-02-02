@@ -428,18 +428,127 @@
   }
 
   const BADGE_CLASS = 'job-autofill-badge';
+  const IMPROVE_BTN_CLASS = 'job-autofill-improve-btn';
+  const FEEDBACK_WRAP_CLASS = 'job-autofill-feedback-wrap';
 
-  function addFillLabel(el, source) {
+  function injectAutofillStyles() {
+    if (document.getElementById('job-autofill-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'job-autofill-styles';
+    style.textContent = [
+      '.job-autofill-improve-btn { font-family: inherit; transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s; }',
+      '.job-autofill-improve-btn:hover { background: #dbeafe !important; border-color: #2563eb !important; color: #1d4ed8 !important; }',
+      '.job-autofill-improve-btn:focus { outline: none; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35) !important; }',
+      '.job-autofill-improve-btn:active { transform: scale(0.98); }',
+      '.job-autofill-feedback-wrap .jaf-input { transition: border-color 0.15s, box-shadow 0.15s; }',
+      '.job-autofill-feedback-wrap .jaf-input:focus { outline: none; border-color: #3b82f6 !important; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important; }',
+      '.job-autofill-feedback-wrap .jaf-btn-apply:hover { background: #1d4ed8 !important; }',
+      '.job-autofill-feedback-wrap .jaf-btn-cancel:hover { background: #f1f5f9 !important; border-color: #64748b !important; }'
+    ].join('\n');
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function removeAnyFeedbackUI() {
+    document.querySelectorAll('.' + FEEDBACK_WRAP_CLASS).forEach(function (node) { node.remove(); });
+  }
+
+  function showImproveFeedback(improveBtn) {
+    removeAnyFeedbackUI();
+    injectAutofillStyles();
+    const fieldEl = improveBtn.previousElementSibling && improveBtn.previousElementSibling.previousElementSibling;
+    const field = fieldEl ? findFieldForElement(fieldEl) : null;
+    if (!field) return;
+    const wrap = document.createElement('div');
+    wrap.className = FEEDBACK_WRAP_CLASS;
+    wrap.style.cssText = 'display:block;margin-top:8px;padding:10px 12px;max-width:320px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.08);font-family:system-ui,-apple-system,sans-serif;';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'jaf-input';
+    input.placeholder = 'What to add or improve? (optional)';
+    input.style.cssText = 'width:100%;padding:8px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;color:#1e293b;';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap;';
+    const applyBtn = document.createElement('button');
+    applyBtn.type = 'button';
+    applyBtn.className = 'jaf-btn-apply';
+    applyBtn.textContent = 'Apply';
+    applyBtn.style.cssText = 'padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit;';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'jaf-btn-cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'padding:6px 14px;font-size:12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#475569;cursor:pointer;font-family:inherit;';
+    const errEl = document.createElement('div');
+    errEl.style.cssText = 'margin-top:6px;font-size:12px;color:#dc2626;line-height:1.3;';
+    row.appendChild(applyBtn);
+    row.appendChild(cancelBtn);
+    wrap.appendChild(input);
+    wrap.appendChild(row);
+    wrap.appendChild(errEl);
+    improveBtn.insertAdjacentElement('afterend', wrap);
+    input.focus();
+    function close() {
+      if (wrap.parentNode) wrap.remove();
+    }
+    cancelBtn.addEventListener('click', close);
+    applyBtn.addEventListener('click', function () {
+      errEl.textContent = '';
+      const instructions = (input.value || '').trim();
+      applyBtn.disabled = true;
+      applyBtn.textContent = '…';
+      improveField(field, instructions).then(function (result) {
+        if (result && result.filled) close();
+        else {
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Apply';
+          if (result && result.error) errEl.textContent = result.error;
+        }
+      }).catch(function () {
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Apply';
+      });
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') applyBtn.click();
+      if (e.key === 'Escape') close();
+    });
+  }
+
+  function addFillLabel(el, source, field) {
     if (!el || !el.parentNode) return;
-    let badge = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains(BADGE_CLASS) ? el.nextElementSibling : null;
-    if (badge) badge.remove();
-    badge = document.createElement('span');
+    let next = el.nextElementSibling;
+    if (next && next.classList && next.classList.contains(BADGE_CLASS)) {
+      next.remove();
+      next = el.nextElementSibling;
+    }
+    if (next && next.classList && next.classList.contains(IMPROVE_BTN_CLASS)) next.remove();
+    injectAutofillStyles();
+    const badge = document.createElement('span');
     badge.className = BADGE_CLASS;
     badge.textContent = source === 'Prefilled' ? 'Prefilled' : 'AI';
     badge.setAttribute('data-autofill-source', source);
-    badge.style.cssText = 'display:inline-block;margin-left:6px;padding:2px 6px;font-size:10px;font-weight:600;border-radius:4px;vertical-align:middle;' +
+    badge.style.cssText = 'display:inline-block;margin-left:6px;padding:3px 8px;font-size:11px;font-weight:600;border-radius:6px;vertical-align:middle;line-height:1.3;' +
       (source === 'Prefilled' ? 'background:#dcfce7;color:#166534;' : 'background:#dbeafe;color:#1e40af;');
     el.insertAdjacentElement('afterend', badge);
+    if (source === 'AI') {
+      const isDropdown = field
+        ? (field.tag === 'select' || field.roleListbox === true)
+        : ((el.tagName || '').toLowerCase() === 'select' || (el.getAttribute('role') || '').toLowerCase() === 'listbox' || (el.getAttribute('role') || '').toLowerCase() === 'combobox');
+      const isMcq = field
+        ? (field.radios && field.radios.length > 0)
+        : ((el.tagName || '').toLowerCase() === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') || (el.getAttribute('role') || '').toLowerCase() === 'radio';
+      if (!isDropdown && !isMcq) {
+        const improveBtn = document.createElement('button');
+        improveBtn.type = 'button';
+        improveBtn.className = IMPROVE_BTN_CLASS;
+        improveBtn.textContent = 'Improve';
+        improveBtn.style.cssText = 'display:inline-block;margin-left:6px;padding:3px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #93c5fd;background:#eff6ff;color:#1e40af;cursor:pointer;vertical-align:middle;line-height:1.3;';
+        improveBtn.addEventListener('click', function onImproveClick() {
+          showImproveFeedback(improveBtn);
+        });
+        badge.insertAdjacentElement('afterend', improveBtn);
+      }
+    }
   }
 
   // Normalize text for better matching: remove punctuation, handle abbreviations, etc.
@@ -700,7 +809,7 @@
       if (response && response.text) {
         const setPromise = setInputValue(field, response.text);
         if (setPromise && typeof setPromise.then === 'function') await setPromise;
-        addFillLabel(field.el, 'AI');
+        addFillLabel(field.el, 'AI', field);
         return { filled: 1 };
       }
       if (response && response.error) return { error: ((field.label || field.placeholder || '').trim() || 'Field') + ': ' + response.error };
@@ -761,7 +870,7 @@
         if (profileValue) {
           const setPromise = setInputValue(field, profileValue);
           if (setPromise && typeof setPromise.then === 'function') await setPromise;
-          addFillLabel(el, 'Prefilled');
+          addFillLabel(el, 'Prefilled', field);
           filled++;
         }
         continue;
@@ -810,9 +919,90 @@
     return { filled, total: fields.length, errors };
   }
 
+  function getCurrentFieldValue(field) {
+    if (!field || !field.el) return '';
+    const el = field.el;
+    const { radios } = field;
+    if (radios && radios.length) {
+      if (field.roleRadio) {
+        const checkedRadio = radios.find(r => r.getAttribute('aria-checked') === 'true');
+        return checkedRadio ? getRoleRadioOptionText(checkedRadio) : '';
+      }
+      const checked = radios.find(r => r.checked);
+      return checked ? (checked.value || '').trim() : '';
+    }
+    if (field.roleListbox) return trimText(el.textContent);
+    return (el.value || '').trim();
+  }
+
+  function findFieldForElement(activeEl) {
+    if (!activeEl) return null;
+    const fields = gatherFields();
+    for (const f of fields) {
+      if (f.el === activeEl) return f;
+      if (f.radios && f.radios.length && f.radios.indexOf(activeEl) >= 0) return f;
+    }
+    return null;
+  }
+
+  async function improveField(field, userInstructions) {
+    if (!field || !field.el) return { error: 'No field.' };
+    const question = (field.label || field.placeholder || '').trim() || 'Form field';
+    const currentAnswer = getCurrentFieldValue(field);
+    const data = await new Promise(resolve => {
+      chrome.storage.local.get(['resume', 'apiProvider', 'apiKeyOpenai', 'apiKeyGroq', 'apiKey'], resolve);
+    });
+    const resume = data.resume || '';
+    const apiProvider = (data.apiProvider || 'openai').toLowerCase() === 'groq' ? 'groq' : 'openai';
+    const apiKey = apiProvider === 'groq'
+      ? (data.apiKeyGroq || '').trim()
+      : (data.apiKeyOpenai || data.apiKey || '').trim();
+    if (!resume || !apiKey) {
+      return { error: 'Set resume and API key in extension Options first.' };
+    }
+    try {
+      const response = await new Promise(resolve => {
+        chrome.runtime.sendMessage({
+          type: 'IMPROVE_ANSWER',
+          question,
+          currentAnswer,
+          userInstructions: userInstructions || '',
+          resume,
+          apiKey,
+          apiProvider
+        }, resolve);
+      });
+      if (response && response.error) return { error: response.error };
+      if (response && response.text) {
+        const setPromise = setInputValue(field, response.text);
+        if (setPromise && typeof setPromise.then === 'function') await setPromise;
+        addFillLabel(field.el, 'AI', field);
+        return { filled: 1 };
+      }
+      return { error: 'Empty response from AI.' };
+    } catch (e) {
+      return { error: e.message || String(e) };
+    }
+  }
+
+  async function improveFocusedField(userInstructions) {
+    const activeEl = document.activeElement;
+    const field = findFieldForElement(activeEl);
+    if (!field) {
+      return { error: 'Focus a form field (input, textarea, or select) first, then click Improve.' };
+    }
+    return improveField(field, userInstructions);
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'FILL_FORM') {
       fillForm().then(sendResponse).catch(e => sendResponse({ filled: 0, errors: [e.message || String(e)] }));
+      return true;
+    }
+    if (message.type === 'IMPROVE_FOCUSED_FIELD') {
+      improveFocusedField(message.userInstructions || '')
+        .then(sendResponse)
+        .catch(e => sendResponse({ error: e.message || String(e) }));
       return true;
     }
   });

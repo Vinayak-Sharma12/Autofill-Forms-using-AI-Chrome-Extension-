@@ -39,6 +39,11 @@
   <h2>Job Application Auto-Fill</h2>
   <p>Fill form fields on this page using your saved profile and AI-generated answers.</p>
   <button type="button" id="fill">Fill form</button>
+  <hr style="margin:14px 0;border:0;border-top:1px solid #e5e7eb;">
+  <p style="margin-bottom:6px;"><strong>Improve this answer</strong></p>
+  <p class="sub" style="margin:0 0 8px;">Focus a field (e.g. one AI filled), add instructions, then click below. AI rewrites using your resume.</p>
+  <textarea id="improveInstructions" placeholder="e.g. shorter, more formal, emphasize leadership" rows="2" style="width:100%;margin-bottom:8px;padding:8px;font-size:13px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;box-sizing:border-box;"></textarea>
+  <button type="button" id="improve">Improve with AI</button>
   <p><a href="#" id="optionsLink">Options</a></p>
   <div id="message"></div>
   <script src="popup.js"></script>
