@@ -157,5 +157,4 @@ AutoFill Job Applicaton AI Agent/
 
 ## License
 
-Use and modify as you like. When publishing on the Chrome Web Store, comply with Google’s Developer Program Policies and provide a privacy policy.
 # Autofill-Forms-using-AI-Chrome-Extension-
